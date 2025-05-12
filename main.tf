@@ -195,7 +195,7 @@ resource "aws_ecs_task_definition" "email_api_task" {
 
   container_definitions = jsonencode([{
     name      = "email-api-container"
-    image     = "640107381183.dkr.ecr.us-east-2.amazonaws.com/email-api-micro1:latest"
+    image     = "640107381183.dkr.ecr.us-east-2.amazonaws.com/email-api-micro1:3ceea66"
     essential = true
     portMappings = [{
       containerPort = 8080
