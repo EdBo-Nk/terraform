@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-
+concurrency: terraform-workflow
 jobs:
   terraform:
     runs-on: ubuntu-latest
