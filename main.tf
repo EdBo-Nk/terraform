@@ -219,7 +219,7 @@ resource "aws_ecs_task_definition" "sqs_to_s3_task" {
 
   container_definitions = jsonencode([{
     name      = "sqs-to-s3-container"
-    image     = "640107381183.dkr.ecr.us-east-2.amazonaws.com/sqs-to-s3-micro2:latest"
+    image     = "640107381183.dkr.ecr.us-east-2.amazonaws.com/sqs-to-s3-micro2:ed011af"
     essential = true
     environment = [
       {
