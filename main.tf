@@ -1,3 +1,10 @@
+terraform {
+  backend "s3" {
+    bucket = "terraform-state-eden-devops-test"
+    key    = "state/state.tfstate"
+    region = "us-east-2"
+  }
+}
 provider "aws" {
   region = "us-east-2"
 }
