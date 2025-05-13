@@ -37,8 +37,10 @@ A deployment system for two Docker microservices on AWS ECS using Terraform and 
    ```
 
 3. **API Usage**
-   ```bash
-   curl -X POST http://email-api-alb-1345036276.us-east-2.elb.amazonaws.com:8080/send \
+
+```
+```bash
+curl -X POST http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:8080/send \
   -H "Content-Type: application/json" \
   -d "{
     \"data\": {
@@ -48,9 +50,9 @@ A deployment system for two Docker microservices on AWS ECS using Terraform and 
       \"email_content\": \"Just a check\"
     },
     \"token\": \"your-token\"
-    }"
+  }"
+```
 
-   ```
 
 4. **Monitoring**: Access Grafana at `http://{alb-dns-name}:3000` (Will not contain the dashboards I created, since its a new deployment)
 
