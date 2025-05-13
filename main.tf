@@ -79,12 +79,11 @@ resource "aws_security_group" "ecs_service_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
-  from_port   = 3000
-  to_port     = 3000
-  protocol    = "tcp"
-  cidr_blocks = ["0.0.0.0/0"]
-}
-
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   egress {
     from_port   = 0
@@ -207,30 +206,97 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-resource "aws_iam_policy" "ecs_admin_access" {
-  name        = "ecs-admin-access"
-  description = "Allow ECS tasks full administrative access"
+# Policy for SQS operations
+resource "aws_iam_policy" "ecs_sqs_policy" {
+  name        = "ecs-sqs-policy"
+  description = "Allow ECS tasks to interact with SQS"
 
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
       {
         Effect = "Allow",
-        Action = "*",
-        Resource = "*"
+        Action = [
+          "sqs:SendMessage",
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueUrl",
+          "sqs:GetQueueAttributes"
+        ],
+        Resource = aws_sqs_queue.email_queue.arn
       }
     ]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "ecs_task_admin_access" {
-  role       = aws_iam_role.ecs_task_role.name
-  policy_arn = aws_iam_policy.ecs_admin_access.arn
+# Policy for S3 operations
+resource "aws_iam_policy" "ecs_s3_policy" {
+  name        = "ecs-s3-policy"
+  description = "Allow ECS tasks to interact with S3"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:HeadObject",
+          "s3:ListBucket"
+        ],
+        Resource = [
+          aws_s3_bucket.email_storage_bucket.arn,
+          "${aws_s3_bucket.email_storage_bucket.arn}/*"
+        ]
+      }
+    ]
+  })
 }
 
-resource "aws_iam_role_policy_attachment" "ecs_task_execution_admin_access" {
+# Policy for SSM operations
+resource "aws_iam_policy" "ecs_ssm_policy" {
+  name        = "ecs-ssm-policy"
+  description = "Allow ECS tasks to access SSM parameters"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters"
+        ],
+        Resource = [
+          "arn:aws:ssm:us-east-2:*:parameter/sqs_queue_url_parameter",
+          "arn:aws:ssm:us-east-2:*:parameter/email-api-token"
+        ]
+      }
+    ]
+  })
+}
+
+# Policy attachments for task role
+resource "aws_iam_role_policy_attachment" "ecs_task_sqs_attachment" {
+  role       = aws_iam_role.ecs_task_role.name
+  policy_arn = aws_iam_policy.ecs_sqs_policy.arn
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_s3_attachment" {
+  role       = aws_iam_role.ecs_task_role.name
+  policy_arn = aws_iam_policy.ecs_s3_policy.arn
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_ssm_attachment" {
+  role       = aws_iam_role.ecs_task_role.name
+  policy_arn = aws_iam_policy.ecs_ssm_policy.arn
+}
+
+# SSM access for execution role (needed for parameter store)
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_ssm_attachment" {
   role       = aws_iam_role.ecs_task_execution_role.name
-  policy_arn = aws_iam_policy.ecs_admin_access.arn
+  policy_arn = aws_iam_policy.ecs_ssm_policy.arn
 }
 
 # Policy attachment for EC2 instance role
@@ -290,7 +356,6 @@ resource "aws_autoscaling_group" "ecs_asg" {
     aws_subnet.public_subnet_2.id
   ]
   
-
   launch_template {
     id      = aws_launch_template.ecs_launch_template.id
     version = "$Latest"
