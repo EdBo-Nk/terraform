@@ -479,14 +479,14 @@ resource "aws_security_group_rule" "grafana_access" {
 # Grafana task definition
 resource "aws_ecs_task_definition" "grafana_task" {
   family                   = "grafana-task"
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = "128"
+  memory                   = "256"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
 
   container_definitions = jsonencode([{
     name      = "grafana-container"
-    image     = "grafana/grafana:latest"
+    image     = "grafana/grafana-enterprise"
     essential = true
     
     portMappings = [{
@@ -509,7 +509,22 @@ resource "aws_ecs_task_definition" "grafana_task" {
         value = "grafana-cloudwatch-datasource"
       }
     ]
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = "/ecs/grafana-service"
+        "awslogs-region"        = "us-east-2"
+        "awslogs-stream-prefix" = "grafana"
+        "awslogs-create-group"  = "true"
+      }
+    }
   }])
+}
+
+resource "aws_cloudwatch_log_group" "grafana_logs" {
+  name              = "/ecs/grafana-service"
+  retention_in_days = 1 
 }
 
 # Grafana target group
@@ -521,12 +536,12 @@ resource "aws_lb_target_group" "grafana_tg" {
   target_type = "instance"
 
   health_check {
-    path                = "/api/health"
-    interval            = 30
-    timeout             = 5
+    path                = "/"
+    interval            = 60
+    timeout             = 30
     healthy_threshold   = 2
     unhealthy_threshold = 2
-    matcher             = "200"
+    matcher             = "200-499"
   }
 
   tags = {
@@ -552,7 +567,8 @@ resource "aws_ecs_service" "grafana_service" {
   cluster         = aws_ecs_cluster.devops_cluster.id
   task_definition = aws_ecs_task_definition.grafana_task.arn
   desired_count   = 1
-
+  deployment_maximum_percent = 100
+  deployment_minimum_healthy_percent = 0
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.ec2_capacity_provider.name
     weight            = 1
