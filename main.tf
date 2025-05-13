@@ -248,7 +248,7 @@ data "aws_ssm_parameter" "ecs_optimized_ami" {
 resource "aws_launch_template" "ecs_launch_template" {
   name_prefix   = "ecs-launch-template-"
   image_id      = data.aws_ssm_parameter.ecs_optimized_ami.value
-  instance_type = "t2.micro"  # Free tier eligible
+  instance_type = "t2.micro"
   
   iam_instance_profile {
     name = aws_iam_instance_profile.ecs_instance_profile.name
@@ -283,7 +283,7 @@ resource "aws_autoscaling_group" "ecs_asg" {
     aws_subnet.public_subnet_2.id
   ]
   
-  # Use launch template instead of launch configuration
+
   launch_template {
     id      = aws_launch_template.ecs_launch_template.id
     version = "$Latest"
@@ -430,7 +430,6 @@ resource "aws_ecs_service" "email_api_service" {
   task_definition = aws_ecs_task_definition.email_api_task.arn
   desired_count   = 1
 
-  # Using capacity provider instead of launch_type
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.ec2_capacity_provider.name
     weight            = 1
@@ -455,7 +454,6 @@ resource "aws_ecs_service" "sqs_to_s3_service" {
   task_definition = aws_ecs_task_definition.sqs_to_s3_task.arn
   desired_count   = 1
 
-  # Using capacity provider instead of launch_type
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.ec2_capacity_provider.name
     weight            = 1
