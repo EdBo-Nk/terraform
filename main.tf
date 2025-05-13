@@ -465,3 +465,23 @@ resource "aws_ecs_service" "sqs_to_s3_service" {
     Name = "sqs-to-s3-service"
   }
 }
+
+#   [public internet]
+#          |
+#          v
+#    [application load blanacer - 8080]
+#          |
+#    +-----+-----+
+#    |           |
+# [EC2-1]     [EC2-2]         <- Auto scaling group
+#    |           |
+#    |     +---------------------------+
+#    |     |   sqs-to-s3-microservice  |
+#    |     +---------------------------+
+#    |
+# +-----------------------+
+# | email-api-microservice|
+# +-----------------------+
+#          |
+#          v
+#       [SQS Queue] -->  [sqs-to-s3-microservice] --> [S3 Bucket]
