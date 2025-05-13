@@ -91,6 +91,32 @@ resource "aws_security_group" "ecs_service_sg" {
   }
 }
 
+# Security group for EC2 instances
+resource "aws_security_group" "ecs_instance_sg" {
+  name        = "ecs-instance-sg"
+  description = "Security group for ECS EC2 instances"
+  vpc_id      = aws_vpc.main_vpc.id
+
+  ingress {
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "tcp"
+    security_groups = [aws_security_group.ecs_service_sg.id]
+    description = "Allow traffic from ECS service security group"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "ecs-instance-sg"
+  }
+}
+
 # === S3, SQS, SSM ===
 resource "aws_s3_bucket" "email_storage_bucket" {
   bucket         = "eden-devops-s3"
@@ -135,6 +161,7 @@ resource "aws_iam_role" "ecs_task_execution_role" {
     }]
   })
 }
+
 resource "aws_iam_role" "ecs_task_role" {
   name = "ecsTaskRole"
 
@@ -151,10 +178,28 @@ resource "aws_iam_role" "ecs_task_role" {
   })
 }
 
+# IAM role for EC2 instances
+resource "aws_iam_role" "ecs_instance_role" {
+  name = "ecs-instance-role"
+  
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Action = "sts:AssumeRole",
+      Effect = "Allow",
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+    }]
+  })
+}
+
+# IAM role policy attachments
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
   role       = aws_iam_role.ecs_task_execution_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
+
 resource "aws_iam_policy" "ecs_admin_access" {
   name        = "ecs-admin-access"
   description = "Allow ECS tasks full administrative access"
@@ -171,25 +216,119 @@ resource "aws_iam_policy" "ecs_admin_access" {
   })
 }
 
-# Attach the admin policy to the ECS task role
 resource "aws_iam_role_policy_attachment" "ecs_task_admin_access" {
   role       = aws_iam_role.ecs_task_role.name
   policy_arn = aws_iam_policy.ecs_admin_access.arn
 }
 
-# Attach the admin policy to the ECS task execution role
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_admin_access" {
   role       = aws_iam_role.ecs_task_execution_role.name
   policy_arn = aws_iam_policy.ecs_admin_access.arn
 }
 
+# Policy attachment for EC2 instance role
+resource "aws_iam_role_policy_attachment" "ecs_instance_role_attachment" {
+  role       = aws_iam_role.ecs_instance_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+}
+
+# Create instance profile for EC2
+resource "aws_iam_instance_profile" "ecs_instance_profile" {
+  name = "ecs-instance-profile"
+  role = aws_iam_role.ecs_instance_role.name
+}
+
+# === EC2 Configuration ===
+# Get the latest ECS-optimized AMI
+data "aws_ssm_parameter" "ecs_optimized_ami" {
+  name = "/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id"
+}
+
+# Launch template for EC2 instances (replaces launch configuration)
+resource "aws_launch_template" "ecs_launch_template" {
+  name_prefix   = "ecs-launch-template-"
+  image_id      = data.aws_ssm_parameter.ecs_optimized_ami.value
+  instance_type = "t2.micro"  # Free tier eligible
+  
+  iam_instance_profile {
+    name = aws_iam_instance_profile.ecs_instance_profile.name
+  }
+  
+  vpc_security_group_ids = [aws_security_group.ecs_instance_sg.id]
+  
+  user_data = base64encode(<<-EOF
+              #!/bin/bash
+              echo ECS_CLUSTER=${aws_ecs_cluster.devops_cluster.name} >> /etc/ecs/ecs.config
+              EOF
+  )
+  
+  tag_specifications {
+    resource_type = "instance"
+    
+    tags = {
+      Name = "ecs-instance"
+    }
+  }
+}
+
+# Auto scaling group for EC2 instances
+resource "aws_autoscaling_group" "ecs_asg" {
+  name                = "ecs-asg"
+  min_size            = 2
+  max_size            = 2
+  desired_capacity    = 2
+  
+  vpc_zone_identifier = [
+    aws_subnet.public_subnet.id,
+    aws_subnet.public_subnet_2.id
+  ]
+  
+  # Use launch template instead of launch configuration
+  launch_template {
+    id      = aws_launch_template.ecs_launch_template.id
+    version = "$Latest"
+  }
+  
+  tag {
+    key                 = "AmazonECSManaged"
+    value               = ""
+    propagate_at_launch = true
+  }
+}
+
+# ECS capacity provider
+resource "aws_ecs_capacity_provider" "ec2_capacity_provider" {
+  name = "ec2-capacity-provider"
+  
+  auto_scaling_group_provider {
+    auto_scaling_group_arn = aws_autoscaling_group.ecs_asg.arn
+    
+    managed_scaling {
+      maximum_scaling_step_size = 1
+      minimum_scaling_step_size = 1
+      status                    = "ENABLED"
+      target_capacity           = 100
+    }
+  }
+}
+
+# Associate capacity provider with cluster
+resource "aws_ecs_cluster_capacity_providers" "cluster_capacity_providers" {
+  cluster_name = aws_ecs_cluster.devops_cluster.name
+  
+  capacity_providers = [aws_ecs_capacity_provider.ec2_capacity_provider.name]
+  
+  default_capacity_provider_strategy {
+    capacity_provider = aws_ecs_capacity_provider.ec2_capacity_provider.name
+    weight = 1
+  }
+}
+
 # === ECS Task Definition ===
 resource "aws_ecs_task_definition" "email_api_task" {
   family                   = "email-api-task"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = "128"
+  memory                   = "256"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
 
@@ -208,12 +347,11 @@ resource "aws_ecs_task_definition" "email_api_task" {
     }]
   }])
 }
+
 resource "aws_ecs_task_definition" "sqs_to_s3_task" {
   family                   = "sqs-to-s3-task"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = "128"
+  memory                   = "256"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
 
@@ -258,7 +396,7 @@ resource "aws_lb_target_group" "email_api_tg" {
   port        = 8080
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main_vpc.id
-  target_type = "ip"
+  target_type = "instance"  # Changed from "ip" to "instance" for EC2
 
   health_check {
     path                = "/"
@@ -289,18 +427,15 @@ resource "aws_lb_listener" "email_api_listener" {
 resource "aws_ecs_service" "email_api_service" {
   name            = "email-api-service"
   cluster         = aws_ecs_cluster.devops_cluster.id
-  launch_type     = "FARGATE"
   task_definition = aws_ecs_task_definition.email_api_task.arn
   desired_count   = 1
 
-  network_configuration {
-    subnets = [
-      aws_subnet.public_subnet.id,
-      aws_subnet.public_subnet_2.id
-    ]
-    security_groups  = [aws_security_group.ecs_service_sg.id]
-    assign_public_ip = true
+  # Using capacity provider instead of launch_type
+  capacity_provider_strategy {
+    capacity_provider = aws_ecs_capacity_provider.ec2_capacity_provider.name
+    weight            = 1
   }
+    
   load_balancer {
     target_group_arn = aws_lb_target_group.email_api_tg.arn
     container_name   = "email-api-container"
@@ -317,19 +452,15 @@ resource "aws_ecs_service" "email_api_service" {
 resource "aws_ecs_service" "sqs_to_s3_service" {
   name            = "sqs-to-s3-service"
   cluster         = aws_ecs_cluster.devops_cluster.id
-  launch_type     = "FARGATE"
   task_definition = aws_ecs_task_definition.sqs_to_s3_task.arn
   desired_count   = 1
 
-  network_configuration {
-    subnets          = [
-      aws_subnet.public_subnet.id,
-      aws_subnet.public_subnet_2.id
-    ]
-    security_groups  = [aws_security_group.ecs_service_sg.id]
-    assign_public_ip = true
+  # Using capacity provider instead of launch_type
+  capacity_provider_strategy {
+    capacity_provider = aws_ecs_capacity_provider.ec2_capacity_provider.name
+    weight            = 1
   }
-
+  
   depends_on = [aws_ecs_task_definition.sqs_to_s3_task]
 
   tags = {
