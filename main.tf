@@ -465,19 +465,124 @@ resource "aws_ecs_service" "sqs_to_s3_service" {
     Name = "sqs-to-s3-service"
   }
 }
+# Security group update to allow Grafana access
+resource "aws_security_group_rule" "grafana_access" {
+  security_group_id = aws_security_group.ecs_service_sg.id
+  type              = "ingress"
+  from_port         = 3000
+  to_port           = 3000
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  description       = "Allow Grafana UI access"
+}
 
-#   [public internet]
-#          |
-#          v
-#    [application load blanacer - 8080]
-#          |
-#    +-----+-----+
-#    |           |
-# [EC2-1]     [EC2-2]         <- Auto scaling group
-#    |           |
-#    |     +---------------------------+
-#    |     |   sqs-to-s3-microservice  |
-#    |     +---------------------------+
+# Grafana task definition
+resource "aws_ecs_task_definition" "grafana_task" {
+  family                   = "grafana-task"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+  task_role_arn            = aws_iam_role.ecs_task_role.arn
+
+  container_definitions = jsonencode([{
+    name      = "grafana-container"
+    image     = "grafana/grafana:latest"
+    essential = true
+    
+    portMappings = [{
+      containerPort = 3000
+      hostPort      = 3000
+      protocol      = "tcp"
+    }]
+    
+    environment = [
+      {
+        name  = "GF_SECURITY_ADMIN_PASSWORD"
+        value = "admin123"
+      },
+      {
+        name  = "GF_USERS_ALLOW_SIGN_UP"
+        value = "false"
+      },
+      {
+        name  = "GF_INSTALL_PLUGINS"
+        value = "grafana-cloudwatch-datasource"
+      }
+    ]
+  }])
+}
+
+# Grafana target group
+resource "aws_lb_target_group" "grafana_tg" {
+  name        = "grafana-tg"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main_vpc.id
+  target_type = "instance"
+
+  health_check {
+    path                = "/api/health"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    matcher             = "200"
+  }
+
+  tags = {
+    Name = "grafana-tg"
+  }
+}
+
+# Grafana listener
+resource "aws_lb_listener" "grafana_listener" {
+  load_balancer_arn = aws_lb.email_api_alb.arn
+  port              = 3000
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.grafana_tg.arn
+  }
+}
+
+# Grafana ECS service
+resource "aws_ecs_service" "grafana_service" {
+  name            = "grafana-service"
+  cluster         = aws_ecs_cluster.devops_cluster.id
+  task_definition = aws_ecs_task_definition.grafana_task.arn
+  desired_count   = 1
+
+  capacity_provider_strategy {
+    capacity_provider = aws_ecs_capacity_provider.ec2_capacity_provider.name
+    weight            = 1
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.grafana_tg.arn
+    container_name   = "grafana-container"
+    container_port   = 3000
+  }
+
+  depends_on = [aws_lb_listener.grafana_listener]
+
+  tags = {
+    Name = "grafana-service"
+  }
+}
+
+#                                                [public internet]
+#                                                        |
+#                                                        v
+#    [application----------------------------------------------------------------------------load blanacer - 8080]
+#          |                                                       |
+#    +-----+-----+                                                 |
+#    |           |                                                 |
+# [EC2-1]     [EC2-2]         <- Auto scaling group                |
+#    |           |                                                 |
+#    |     +---------------------------+                +---------------------------+
+#    |     |   sqs-to-s3-microservice  |                |       grafana             |   
+#    |     +---------------------------+                +---------------------------+
 #    |
 # +-----------------------+
 # | email-api-microservice|
