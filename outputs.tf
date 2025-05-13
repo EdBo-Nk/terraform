@@ -12,7 +12,7 @@ output "alb_dns_name" {
 }
 output "grafana_url" {
   description = "URL to access Grafana"
-  value       = "http://${aws_lb.email_api_alb.dns_name}:3000"
+  value       = "http://${aws_instance.grafana.public_ip}:3000"
 }
 
 output "grafana_login" {

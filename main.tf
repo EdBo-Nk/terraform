@@ -465,125 +465,94 @@ resource "aws_ecs_service" "sqs_to_s3_service" {
     Name = "sqs-to-s3-service"
   }
 }
-# Security group update to allow Grafana access
-resource "aws_security_group_rule" "grafana_access" {
-  security_group_id = aws_security_group.ecs_service_sg.id
-  type              = "ingress"
-  from_port         = 3000
-  to_port           = 3000
-  protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
-  description       = "Allow Grafana UI access"
-}
 
-# Grafana task definition
-resource "aws_ecs_task_definition" "grafana_task" {
-  family                   = "grafana-task"
-  cpu                      = "128"
-  memory                   = "256"
-  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
-  task_role_arn            = aws_iam_role.ecs_task_role.arn
-
-  container_definitions = jsonencode([{
-    name      = "grafana-container"
-    image     = "grafana/grafana-enterprise"
-    essential = true
-    
-    portMappings = [{
-      containerPort = 3000
-      hostPort      = 3000
-      protocol      = "tcp"
-    }]
-    
-    environment = [
-      {
-        name  = "GF_SECURITY_ADMIN_PASSWORD"
-        value = "admin123"
-      },
-      {
-        name  = "GF_USERS_ALLOW_SIGN_UP"
-        value = "false"
-      },
-      {
-        name  = "GF_INSTALL_PLUGINS"
-        value = "grafana-cloudwatch-datasource"
-      }
-    ]
-
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        "awslogs-group"         = "/ecs/grafana-service"
-        "awslogs-region"        = "us-east-2"
-        "awslogs-stream-prefix" = "grafana"
-        "awslogs-create-group"  = "true"
-      }
-    }
-  }])
-}
-
-resource "aws_cloudwatch_log_group" "grafana_logs" {
-  name              = "/ecs/grafana-service"
-  retention_in_days = 1 
-}
-
-# Grafana target group
-resource "aws_lb_target_group" "grafana_tg" {
-  name        = "grafana-tg"
-  port        = 3000
-  protocol    = "HTTP"
+# Security group for Grafana EC2 instance
+resource "aws_security_group" "grafana_sg" {
+  name        = "grafana-sg"
+  description = "Security group for Grafana server"
   vpc_id      = aws_vpc.main_vpc.id
-  target_type = "instance"
 
-  health_check {
-    path                = "/"
-    interval            = 60
-    timeout             = 30
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-    matcher             = "200-499"
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Grafana UI access"
+  }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "SSH access"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = {
-    Name = "grafana-tg"
+    Name = "grafana-sg"
   }
 }
 
-# Grafana listener
-resource "aws_lb_listener" "grafana_listener" {
-  load_balancer_arn = aws_lb.email_api_alb.arn
-  port              = 3000
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.grafana_tg.arn
-  }
+# IAM role for Grafana EC2 instance
+resource "aws_iam_role" "grafana_role" {
+  name = "grafana-ec2-role"
+  
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Action = "sts:AssumeRole",
+      Effect = "Allow",
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+    }]
+  })
 }
 
-# Grafana ECS service
-resource "aws_ecs_service" "grafana_service" {
-  name            = "grafana-service"
-  cluster         = aws_ecs_cluster.devops_cluster.id
-  task_definition = aws_ecs_task_definition.grafana_task.arn
-  desired_count   = 1
-  deployment_maximum_percent = 100
-  deployment_minimum_healthy_percent = 0
-  capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.ec2_capacity_provider.name
-    weight            = 1
-  }
+# Attach policy for CloudWatch access
+resource "aws_iam_role_policy_attachment" "grafana_cloudwatch" {
+  role       = aws_iam_role.grafana_role.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess"
+}
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.grafana_tg.arn
-    container_name   = "grafana-container"
-    container_port   = 3000
-  }
+# Instance profile
+resource "aws_iam_instance_profile" "grafana_profile" {
+  name = "grafana-profile"
+  role = aws_iam_role.grafana_role.name
+}
 
-  depends_on = [aws_lb_listener.grafana_listener]
-
+# Grafana EC2 instance
+resource "aws_instance" "grafana" {
+  ami                    = "ami-0c55b159cbfafe1f0"  # Amazon Linux 2
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.public_subnet.id
+  vpc_security_group_ids = [aws_security_group.grafana_sg.id]
+  iam_instance_profile   = aws_iam_instance_profile.grafana_profile.name
+  associate_public_ip_address = true
+  
+  user_data = <<-EOF
+              #!/bin/bash
+              # Install Docker
+              amazon-linux-extras install docker -y
+              systemctl start docker
+              systemctl enable docker
+              
+              # Run Grafana
+              docker run -d --name=grafana -p 3000:3000 \
+                -e "GF_SECURITY_ADMIN_PASSWORD=admin123" \
+                -e "GF_USERS_ALLOW_SIGN_UP=false" \
+                grafana/grafana:8.5.0
+              EOF
+  
   tags = {
-    Name = "grafana-service"
+    Name = "grafana-server"
   }
 }
 
