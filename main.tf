@@ -466,107 +466,18 @@ resource "aws_ecs_service" "sqs_to_s3_service" {
   }
 }
 
-# Security group for Grafana EC2 instance
-resource "aws_security_group" "grafana_sg" {
-  name        = "grafana-sg"
-  description = "Security group for Grafana server"
-  vpc_id      = aws_vpc.main_vpc.id
-
-  ingress {
-    from_port   = 3000
-    to_port     = 3000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Grafana UI access"
-  }
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "SSH access"
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "grafana-sg"
-  }
-}
-
-# IAM role for Grafana EC2 instance
-resource "aws_iam_role" "grafana_role" {
-  name = "grafana-ec2-role"
-  
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Action = "sts:AssumeRole",
-      Effect = "Allow",
-      Principal = {
-        Service = "ec2.amazonaws.com"
-      }
-    }]
-  })
-}
-
-# Attach policy for CloudWatch access
-resource "aws_iam_role_policy_attachment" "grafana_cloudwatch" {
-  role       = aws_iam_role.grafana_role.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess"
-}
-
-# Instance profile
-resource "aws_iam_instance_profile" "grafana_profile" {
-  name = "grafana-profile"
-  role = aws_iam_role.grafana_role.name
-}
-
-# Grafana EC2 instance
-resource "aws_instance" "grafana" {
-  ami                    = "ami-0c55b159cbfafe1f0"  # Amazon Linux 2
-  instance_type          = "t2.micro"
-  subnet_id              = aws_subnet.public_subnet.id
-  vpc_security_group_ids = [aws_security_group.grafana_sg.id]
-  iam_instance_profile   = aws_iam_instance_profile.grafana_profile.name
-  associate_public_ip_address = true
-  
-  user_data = <<-EOF
-              #!/bin/bash
-              # Install Docker
-              amazon-linux-extras install docker -y
-              systemctl start docker
-              systemctl enable docker
-              
-              # Run Grafana
-              docker run -d --name=grafana -p 3000:3000 \
-                -e "GF_SECURITY_ADMIN_PASSWORD=admin123" \
-                -e "GF_USERS_ALLOW_SIGN_UP=false" \
-                grafana/grafana:8.5.0
-              EOF
-  
-  tags = {
-    Name = "grafana-server"
-  }
-}
 
 #                                                [public internet]
 #                                                        |
 #                                                        v
 #    [application----------------------------------------------------------------------------load blanacer - 8080]
 #          |                                                       |
-#    +-----+-----+                                                 |
-#    |           |                                                 |
+#    +-----+-----+                                                 x
+#    |           |                                                 x
 # [EC2-1]     [EC2-2]         <- Auto scaling group                |
 #    |           |                                                 |
 #    |     +---------------------------+                +---------------------------+
-#    |     |   sqs-to-s3-microservice  |                |       grafana             |   
+#    |     |   sqs-to-s3-microservice  |                |     xxx  grafana   xxx          |   
 #    |     +---------------------------+                +---------------------------+
 #    |
 # +-----------------------+
