@@ -78,6 +78,13 @@ resource "aws_security_group" "ecs_service_sg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  ingress {
+  from_port   = 3000
+  to_port     = 3000
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+
 
   egress {
     from_port   = 0
@@ -463,6 +470,77 @@ resource "aws_ecs_service" "sqs_to_s3_service" {
 
   tags = {
     Name = "sqs-to-s3-service"
+  }
+}
+resource "aws_ecs_task_definition" "grafana_task" {
+  family                   = "grafana-task"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+  task_role_arn            = aws_iam_role.ecs_task_role.arn
+
+  container_definitions = jsonencode([{
+    name      = "grafana"
+    image     = "grafana/grafana:latest"
+    essential = true
+    portMappings = [{
+      containerPort = 3000
+      hostPort      = 3000
+      protocol      = "tcp"
+    }]
+  }])
+}
+resource "aws_lb_target_group" "grafana_tg" {
+  name        = "grafana-tg"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main_vpc.id
+  target_type = "instance"
+
+  health_check {
+    path                = "/"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    matcher             = "200-399"
+  }
+
+  tags = {
+    Name = "grafana-tg"
+  }
+}
+resource "aws_lb_listener" "grafana_listener" {
+  load_balancer_arn = aws_lb.email_api_alb.arn
+  port              = 3000
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.grafana_tg.arn
+  }
+}
+resource "aws_ecs_service" "grafana_service" {
+  name            = "grafana-service"
+  cluster         = aws_ecs_cluster.devops_cluster.id
+  task_definition = aws_ecs_task_definition.grafana_task.arn
+  desired_count   = 1
+
+  capacity_provider_strategy {
+    capacity_provider = aws_ecs_capacity_provider.ec2_capacity_provider.name
+    weight            = 1
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.grafana_tg.arn
+    container_name   = "grafana"
+    container_port   = 3000
+  }
+
+  depends_on = [aws_lb_listener.grafana_listener]
+
+  tags = {
+    Name = "grafana-service"
   }
 }
 
