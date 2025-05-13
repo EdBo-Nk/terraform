@@ -55,6 +55,7 @@ curl -X POST http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:80
 
 
 4. **Monitoring**: Access Grafana at `[http://{alb-dns-name}](http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:3000` (Will not contain the dashboards I created, since its a new deployment)
+![Grafana Dashboard](https://github.com/EdBo-Nk/terraform/blob/9aca98a4651af292aebfab5ae6bf3d981d03a32e/Grafana%20Demo.png)
 
 ## Notes
 
