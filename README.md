@@ -54,7 +54,7 @@ curl -X POST http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:80
 ```
 
 
-4. **Monitoring**: Access Grafana at `http://{alb-dns-name}:3000` (Will not contain the dashboards I created, since its a new deployment)
+4. **Monitoring**: Access Grafana at `[http://{alb-dns-name}](http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:3000` (Will not contain the dashboards I created, since its a new deployment)
 
 ## Notes
 
