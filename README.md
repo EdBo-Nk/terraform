@@ -71,18 +71,18 @@ To implement this in your own AWS environment:
 3. **API Usage**
 
     ```
-      ```bash
-      curl -X POST http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:8080/send \
-        -H "Content-Type: application/json" \
-        -d "{
-          \"data\": {
-            \"email_subject\": \"Test Subject\",
-            \"email_sender\": \"test@checkpoint.com\",
-            \"email_timestream\": \"$(date +%s)\",
-            \"email_content\": \"Just a check\"
-          },
-          \"token\": \"your-token\"
-        }"
+    ```bash
+    curl -X POST http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:8080/send \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"data\": {
+          \"email_subject\": \"Test Subject\",
+          \"email_sender\": \"test@checkpoint.com\",
+          \"email_timestream\": \"$(date +%s)\",
+          \"email_content\": \"Just a check\"
+        },
+        \"token\": \"your-token\"
+      }"
     ```
 
 
