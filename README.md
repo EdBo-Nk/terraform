@@ -25,6 +25,27 @@ A deployment system for two Docker microservices on AWS ECS using Terraform and 
 
 ## Deployment
 
+## Setup Repository Secrets
+
+For the CI/CD pipelines to work properly, you need to add the following secrets to your GitHub repositories:
+
+### For the Terraform repository:
+- `AWS_ACCESS_KEY_ID`: Your AWS access key with necessary permissions
+- `AWS_SECRET_ACCESS_KEY`: Your AWS secret key
+- `AWS_REGION`: us-east-2 (Ohio region)
+
+### Required Changes
+To implement this solution in your own AWS environment:
+
+1. **ECR Registry**: Replace `640107381183.dkr.ecr.us-east-2.amazonaws.com` with your ECR registry in:
+   - `email-api-ci.yml`
+   - `sqs-to-s3-ci.yml`
+   - `main.tf` 
+
+2. **S3 Bucket Names**: Replace with unique names in `main.tf`:
+   - `eden-devops-s3` for email storage
+   - `terraform-state-eden-devops-test` for Terraform state
+
 1. **Terraform Setup**
    ```bash
    terraform init
