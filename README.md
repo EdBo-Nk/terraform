@@ -29,13 +29,24 @@ A deployment system for two Docker microservices on AWS ECS using Terraform and 
 
 For the CI/CD pipelines to work properly, you need to add the following secrets to your GitHub repositories:
 
-### For the Terraform repository:
-- `AWS_ACCESS_KEY_ID`: Your AWS access key with necessary permissions
-- `AWS_SECRET_ACCESS_KEY`: Your AWS secret key
-- `AWS_REGION`: us-east-2 (Ohio region)
+1. Add these GitHub repository secrets:
+   - `AWS_ACCESS_KEY_ID`: Your AWS access key with permissions for:
+     - IAM (role/policy creation and management)
+     - EC2 (security groups, VPC, subnets, instances)
+     - ECR (repository management)
+     - ECS (cluster, service, task definition management)
+     - S3 (bucket creation and management)
+     - SQS (queue creation and management)
+     - SSM (parameter store management)
+     - Load Balancer (ALB creation and configuration)
+     - CloudWatch (for logging)
+   - `AWS_SECRET_ACCESS_KEY`: Your AWS secret key
+   - `AWS_REGION`: us-east-2 (or your preferred region)
+
+2. For simplicity during testing, you might start with Admin access and then dial down permissions based on the resources defined in the Terraform files.
 
 ### Required Changes
-To implement this solution in your own AWS environment:
+To implement this in your own AWS environment:
 
 1. **ECR Registry**: Replace `640107381183.dkr.ecr.us-east-2.amazonaws.com` with your ECR registry in:
    - `email-api-ci.yml`
@@ -59,20 +70,20 @@ To implement this solution in your own AWS environment:
 
 3. **API Usage**
 
-```
-```bash
-curl -X POST http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:8080/send \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"data\": {
-      \"email_subject\": \"Test Subject\",
-      \"email_sender\": \"test@checkpoint.com\",
-      \"email_timestream\": \"$(date +%s)\",
-      \"email_content\": \"Just a check\"
-    },
-    \"token\": \"your-token\"
-  }"
-```
+  ```
+  ```bash
+  curl -X POST http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:8080/send \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"data\": {
+        \"email_subject\": \"Test Subject\",
+        \"email_sender\": \"test@checkpoint.com\",
+        \"email_timestream\": \"$(date +%s)\",
+        \"email_content\": \"Just a check\"
+      },
+      \"token\": \"your-token\"
+    }"
+  ```
 
 
 4. **Monitoring**: Access Grafana at `[http://{alb-dns-name}](http://email-api-alb-<insert-alb-id>.us-east-2.elb.amazonaws.com:3000` (Will not contain the dashboards I created, since its a new deployment)
